@@ -8,4 +8,4 @@ from kaiju_app.loader import *
 __python_version__ = "3.12"
 __author__ = "violetblackdev@gmail.com"
 __license__ = "MIT"
-__version__ = "0.1.2"
+__version__ = "0.1.3"

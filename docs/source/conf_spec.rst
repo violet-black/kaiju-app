@@ -114,6 +114,12 @@ Maximum allowed time in seconds for each service to start.
 
 Maximum allowed time in seconds for each service to execute its `post_init` method.
 
+**max_parallel_tasks**
+
+: int = 128
+
+Max parallel asyncio tasks submitted to the internal server simultaneously.
+
 **show_inspection_on_start**
 
 : bool

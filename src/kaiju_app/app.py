@@ -9,7 +9,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable, Self, TypedDict, TypeVar, final
 
-from kaiju_scheduler import Scheduler, ScheduledTask
+from kaiju_scheduler import Scheduler, ScheduledTask, Server
 from uvlog import Logger
 
 from kaiju_app.bases import Error
@@ -251,11 +251,17 @@ class Application:
     show_inspection_on_start: bool = False
     """Show inspection data in logs after the app start."""
 
+    max_parallel_tasks: int = 128
+    """Max parallel asyncio tasks submitted to the internal application server simultaneously."""
+
     metadata: dict = field(default_factory=dict)
     """Application metadata not used by it directly."""
 
     scheduler: Scheduler = field(init=False)
     """Internal task scheduler."""
+
+    server: Server = field(init=False)
+    """Internal task server."""
 
     optional_services: list[str] = field(default_factory=list)
     """List of optional services not required for the app start."""
@@ -277,6 +283,7 @@ class Application:
     def __post_init__(self):
         """Initialize."""
         self.scheduler = Scheduler(logger=self.logger.get_child("_scheduler"))
+        self.server = Server(logger=self.logger.get_child("_server"), max_parallel_tasks=self.max_parallel_tasks)
         self.services = MappingProxyType(self._service_map)
         self.namespace = Namespace(self.env, self.name)
 

@@ -107,7 +107,7 @@ class TestApplication:
                 assert _service.post_init_called
 
             inspection = await _app.inspect()
-            _app.logger.debug(str(inspection))
+            print(inspection)
             assert inspection['health']['healthy']
 
         for _service in _app.services.values():

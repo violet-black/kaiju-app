@@ -4,7 +4,7 @@ import asyncio
 from abc import ABC
 from contextlib import suppress
 from contextvars import ContextVar
-from dataclasses import MISSING, Field, dataclass, field
+from dataclasses import MISSING, Field, dataclass, field, InitVar
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable, Self, TypedDict, TypeVar, final
@@ -228,15 +228,12 @@ class Application:
     """Logger instance.
     During the app init a logger instance is provided automatically by the app constructor."""
 
-    state: State = field(init=False, default_factory=lambda: State(ServiceState, ServiceState.CLOSED))
-    """Service work state."""
-
     env: str
     """App environment (scope).
     See :py:obj:`~kaiju_base.app.Environment` for a list of standard environments. It's not mandatory but recommended.
     """
 
-    context: ContextVar[dict | None]
+    context: ContextVar[dict | None] = APP_CONTEXT
     """Context var to store a server call context."""
 
     debug: bool = False
@@ -251,17 +248,8 @@ class Application:
     show_inspection_on_start: bool = False
     """Show inspection data in logs after the app start."""
 
-    max_parallel_tasks: int = 128
-    """Max parallel asyncio tasks submitted to the internal application server simultaneously."""
-
     metadata: dict = field(default_factory=dict)
     """Application metadata not used by it directly."""
-
-    scheduler: Scheduler = field(init=False)
-    """Internal task scheduler."""
-
-    server: Server = field(init=False)
-    """Internal task server."""
 
     optional_services: list[str] = field(default_factory=list)
     """List of optional services not required for the app start."""
@@ -272,6 +260,18 @@ class Application:
     namespace: Namespace = field(init=False, default=Namespace())
     """Application namespace for consistent key names across the app."""
 
+    max_parallel_tasks: InitVar[int] = 128
+    """Max parallel asyncio tasks submitted to the internal application server simultaneously."""
+
+    state: State = field(init=False, default_factory=lambda: State(ServiceState, ServiceState.CLOSED))
+    """Service work state."""
+
+    scheduler: Scheduler = field(init=False)
+    """Internal task scheduler."""
+
+    server: Server = field(init=False)
+    """Internal task server."""
+
     _service_loading_order: list[Service] = field(init=False, default_factory=list)
     """List of services in order they must be initialized."""
 
@@ -280,10 +280,10 @@ class Application:
 
     _post_init_task: asyncio.Future | None = field(init=False, default=None)
 
-    def __post_init__(self):
+    def __post_init__(self, max_parallel_tasks: int):
         """Initialize."""
         self.scheduler = Scheduler(logger=self.logger.get_child("_scheduler"))
-        self.server = Server(logger=self.logger.get_child("_server"), max_parallel_tasks=self.max_parallel_tasks)
+        self.server = Server(max_parallel_tasks=max_parallel_tasks, logger=self.logger.get_child("_server"))
         self.services = MappingProxyType(self._service_map)
         self.namespace = Namespace(self.env, self.name)
 
@@ -315,27 +315,33 @@ class Application:
 
     def json_repr(self) -> dict[str, Any]:
         return {
-            "cls": self.__class__.__name__,
-            "data": {
-                "env": self.env,
-                "debug": self.debug,
-                "metadata": self.metadata,
-                "scheduler": self.scheduler.json_repr(),
-                "services": [
-                    {
-                        "cls": _service.__class__.__name__,
-                        "data": {"name": _service.name, "state": _service.state.get().value, **_service.json_repr()},
-                    }
-                    for _service in self._service_loading_order
-                ],
-            },
+            "env": self.env,
+            "debug": self.debug,
+            "metadata": self.metadata,
+            "scheduler": self.scheduler.json_repr(),
+            "services": [
+                {
+                    "cls": _service.__class__.__name__,
+                    "data": {"name": _service.name, "state": _service.state.get().value, **_service.json_repr()},
+                }
+                for _service in self._service_loading_order
+            ],
+            "tasks": [
+                {
+                    "name": task.get_name(),
+                    "is_done": bool(task.done()),
+                    "is_cancelling": bool(task.cancelling()),
+                    "is_cancelled": bool(task.cancelled()),
+                }
+                for task in asyncio.all_tasks()
+            ],
         }
 
     async def inspect(self, services: list[str] | None = None) -> dict:
         """Inspect the app and get all services data and health."""
         app_data = self.json_repr()
         healthy = True
-        for service_data in app_data["data"]["services"]:
+        for service_data in app_data["services"]:
             service_name = service_data["data"]["name"]
             if services and service_name not in services:
                 continue

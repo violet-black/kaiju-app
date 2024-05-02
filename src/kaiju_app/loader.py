@@ -7,6 +7,7 @@ from importlib import import_module
 from typing import Mapping, Required, TypedDict, TypeVar
 
 import uvlog
+from kaiju_scheduler import Scheduler, Server
 
 from kaiju_app.app import APP_CONTEXT, Application, Service, ServiceFieldType
 
@@ -23,7 +24,7 @@ __all__ = [
 
 _Application = TypeVar("_Application", bound=Application)
 _Service = TypeVar("_Service", bound=Service)
-_Sentinel = ...
+_SENTINEL = ...
 
 
 class DependencyCycleError(RuntimeError):
@@ -54,6 +55,8 @@ class AppConfig(TypedDict, total=False):
     name: Required[str]  #: application unique name
     env: Required[str]  #: application environment name: prod, test, qa, etc.
     loglevel: uvlog.LevelName | None  #: default log level for the app and app services
+    scheduler: dict  #: app scheduler init settings
+    server: dict  #: app server init settings
     settings: dict  #: args for application __init__
     optional_services: list[str]  #: list of optional services (names)
     services: list[ServiceConfig]  #: list of service settings
@@ -93,7 +96,9 @@ class ApplicationLoader:
         """Load services from packages and return a new application."""
         self.configure_loggers(config["logging"], context)
         self.load_extensions(config["packages"])
-        return self.create_app(app_class, config["app"], context, config["debug"])
+        app = self.create_app(app_class, config["app"], context, config["debug"])
+        self.init_app_services(app, config["app"]["services"])
+        return app
 
     @staticmethod
     def configure_loggers(config: uvlog.uvlog._DictConfig, context: ContextVar[dict | None], /) -> None:
@@ -107,8 +112,9 @@ class ApplicationLoader:
                 if issubclass(obj, Service):
                     self.service_classes[name] = obj
 
+    @staticmethod
     def create_app(
-        self, app_class: type[_Application], config: AppConfig, context: ContextVar[dict | None], debug: bool, /
+        app_class: type[_Application], config: AppConfig, context: ContextVar[dict | None], debug: bool, /
     ) -> _Application:
         app_logger = uvlog.get_logger(config["name"], persistent=True)
         loglevel = config["loglevel"]
@@ -121,12 +127,16 @@ class ApplicationLoader:
             debug=debug,
             logger=app_logger,
             optional_services=config["optional_services"],
+            scheduler=Scheduler(**config["scheduler"], logger=app_logger.get_child("_scheduler")),
+            server=Server(**config["server"], logger=app_logger.get_child("_server")),
             **config["settings"],
         )
-        app_services = self._create_app_services(app, config["services"])
+        return app
+
+    def init_app_services(self, app: _Application, config: list[ServiceConfig], /) -> None:
+        app_services = self._create_app_services(app, config)
         service_loading_order = self._get_service_loading_order(app_services)
         app.add_services(*service_loading_order)
-        return app
 
     def _create_app_services(self, app: _Application, config: list[ServiceConfig], /) -> dict[str, Service]:
         app_services = {}
@@ -148,13 +158,13 @@ class ApplicationLoader:
                     f" in the `packages` section of the config file."
                 ) from None
 
-            new_service = self._create_service(app, self.service_classes[service_config["cls"]], service_config)
+            new_service = self.create_service(app, self.service_classes[service_config["cls"]], service_config)
             app_services[new_service.name] = new_service
 
         return app_services
 
     @staticmethod
-    def _create_service(app: _Application, service_class: type[_Service], config: ServiceConfig, /) -> Service:
+    def create_service(app: _Application, service_class: type[_Service], config: ServiceConfig, /) -> Service:
         service_logger = app.logger.get_child(config["name"], persistent=True)
         loglevel = config["loglevel"]
         if loglevel is not None:
@@ -206,7 +216,7 @@ class ApplicationLoader:
         if isinstance(name, Service):
             return name
 
-        if name is _Sentinel:
+        if name is _SENTINEL:
             _service_type = field_.type
             if isinstance(_service_type, str):
                 _service_type = self.service_classes[_service_type]
@@ -219,7 +229,7 @@ class ApplicationLoader:
                 dependency = None
         setattr(service_, field_.name, dependency)
         if dependency is None and field_.required:
-            if name is _Sentinel:
+            if name is _SENTINEL:
                 name = "..."
             raise DependencyNotFound(
                 f"Dependency failed for service: {service_.name}\n\n"

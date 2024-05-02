@@ -43,6 +43,8 @@ class TestAppLoaderConfigs:
                 settings={
                     'metadata': {'param': 'test'},
                 },
+                scheduler={},
+                server={},
                 optional_services=[],
                 services=[
                     ServiceConfig(

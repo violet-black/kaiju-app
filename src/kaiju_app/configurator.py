@@ -32,7 +32,7 @@ class Configurator:
     >>> configurator = Configurator()
     >>> configurator.create_configuration([template], [env])
     {'debug': False, 'packages': [], 'logging': {}, 'app': {'name': 'app', 'env': 'prod', 'loglevel': None, \
-'settings': {}, 'optional_services': [], 'services': []}}
+'settings': {}, 'scheduler': {}, 'server': {}, 'optional_services': [], 'services': []}}
 
     """
 
@@ -114,6 +114,8 @@ class Configurator:
             env=app_config["env"],
             loglevel=app_config.get("loglevel", None),
             settings=app_config.get("settings", {}),
+            scheduler=app_config.get("scheduler", {}),
+            server=app_config.get("server", {}),
             optional_services=app_config.get("optional_services", []),
             services=services_config,
         )

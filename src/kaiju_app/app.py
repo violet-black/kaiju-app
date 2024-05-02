@@ -4,7 +4,7 @@ import asyncio
 from abc import ABC
 from contextlib import suppress
 from contextvars import ContextVar
-from dataclasses import MISSING, Field, dataclass, field, InitVar
+from dataclasses import MISSING, Field, dataclass, field
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable, Self, TypedDict, TypeVar, final
@@ -16,6 +16,7 @@ from kaiju_app.bases import Error
 from kaiju_app.utils import State, timeout, Namespace
 
 __all__ = [
+    "APP_CONTEXT",
     "Application",
     "service",
     "Service",
@@ -33,7 +34,7 @@ __all__ = [
 _AsyncCallable = Callable[..., Awaitable[Any]]
 _Application = TypeVar("_Application", bound="Application")
 _ServiceClasses = dict[str, type["Service"]]
-_Sentinel = ...
+_SENTINEL = ...
 
 
 APP_CONTEXT: ContextVar[dict | None] = ContextVar("APP_CONTEXT", default=None)
@@ -78,7 +79,7 @@ class ServiceFieldType(Field):
         self.nowait = nowait
 
 
-def service(*, name=_Sentinel, metadata=None, required: bool = True, nowait: bool = False):
+def service(*, name=_SENTINEL, metadata=None, required: bool = True, nowait: bool = False):
     """Service field describing another service dependency.
 
     :param name: custom service name
@@ -254,23 +255,20 @@ class Application:
     optional_services: list[str] = field(default_factory=list)
     """List of optional services not required for the app start."""
 
-    services: MappingProxyType[str, Service] = field(init=False, default=MappingProxyType({}))
-    """Application services registry."""
+    scheduler: Scheduler = field(default_factory=Scheduler)
+    """Internal task scheduler."""
 
-    namespace: Namespace = field(init=False, default=Namespace())
+    server: Server = field(default_factory=Server)
+    """Internal task server."""
+
+    namespace: Namespace = field(init=False)
     """Application namespace for consistent key names across the app."""
-
-    max_parallel_tasks: InitVar[int] = 128
-    """Max parallel asyncio tasks submitted to the internal application server simultaneously."""
 
     state: State = field(init=False, default_factory=lambda: State(ServiceState, ServiceState.CLOSED))
     """Service work state."""
 
-    scheduler: Scheduler = field(init=False)
-    """Internal task scheduler."""
-
-    server: Server = field(init=False)
-    """Internal task server."""
+    services: MappingProxyType[str, Service] = field(init=False)
+    """Application services registry."""
 
     _service_loading_order: list[Service] = field(init=False, default_factory=list)
     """List of services in order they must be initialized."""
@@ -280,10 +278,8 @@ class Application:
 
     _post_init_task: asyncio.Future | None = field(init=False, default=None)
 
-    def __post_init__(self, max_parallel_tasks: int):
+    def __post_init__(self):
         """Initialize."""
-        self.scheduler = Scheduler(logger=self.logger.get_child("_scheduler"))
-        self.server = Server(max_parallel_tasks=max_parallel_tasks, logger=self.logger.get_child("_server"))
         self.services = MappingProxyType(self._service_map)
         self.namespace = Namespace(self.env, self.name)
 
@@ -357,6 +353,8 @@ class Application:
         if self.debug:
             self.logger.warning("running in debug mode")
 
+        await self.server.start()
+
         for n, _service in enumerate(self._service_loading_order):
             try:
                 await asyncio.wait_for(_service.start(), self.service_start_timeout_s)
@@ -401,6 +399,7 @@ class Application:
             with suppress(asyncio.CancelledError):
                 await self._post_init_task
         self._post_init_task = None
+        await self.server.stop()
         self.logger.info("stopped")
 
     async def _post_init_service(self, _service: Service, /) -> None:

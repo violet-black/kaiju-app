@@ -1,9 +1,31 @@
 """Base and basic types."""
 
-from abc import ABC
-from typing import ClassVar, Mapping, TypedDict, Any
+from abc import ABC, abstractmethod
+from typing import Any, ClassVar, Mapping, Protocol, TypedDict
 
-__all__ = ["Error", "ErrorData"]
+__all__ = ["Error", "ErrorData", "JSONType", "Encoder", "Contextable"]
+
+
+class Contextable(Protocol):
+
+    async def start(self) -> None: ...
+
+    async def stop(self) -> None: ...
+
+
+class JSONType(Protocol):
+
+    @abstractmethod
+    def json_repr(self) -> dict[str, Any]: ...
+
+
+class Encoder(Protocol):
+
+    @abstractmethod
+    def encode(self, obj: Any, /) -> bytes: ...
+
+    @abstractmethod
+    def decode(self, data: bytes, /) -> Any: ...
 
 
 class _ErrorDataData(TypedDict):

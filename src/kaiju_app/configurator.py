@@ -60,7 +60,7 @@ class Configurator:
 
         See :py:func:`~kaiju_app.utils.merge_dicts` function on the rules of how dictionaries are merged.
 
-        See the `template-dict documentation <http://template-dict.readthedocs.io>`_ on template syntax.
+        See the `template-dict documentation <https://template-dict.readthedocs.io>`_ on template syntax.
 
         """
         template = Template(merge_dicts(*templates))

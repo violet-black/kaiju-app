@@ -9,11 +9,11 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable, Self, TypedDict, TypeVar, final
 
-from kaiju_scheduler import Scheduler, ScheduledTask, Server
+from kaiju_scheduler import ScheduledTask, Scheduler, Server
 from uvlog import Logger
 
 from kaiju_app.bases import Error
-from kaiju_app.utils import State, timeout, Namespace
+from kaiju_app.utils import Namespace, State, timeout
 
 __all__ = [
     "APP_CONTEXT",

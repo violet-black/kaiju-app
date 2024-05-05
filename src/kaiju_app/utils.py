@@ -6,7 +6,7 @@ from ast import literal_eval
 from bisect import bisect
 from collections.abc import Hashable, Sized
 from contextlib import suppress
-from typing import Any, Collection, Generic, Iterable, Mapping, TypeVar, NewType
+from typing import Any, Collection, Generic, Iterable, Mapping, NewType, TypeVar
 
 from kaiju_scheduler import RetryError, retry, timeout
 from template_dict import Template

@@ -9,10 +9,11 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable, Self, TypedDict, TypeVar, final
 
-from kaiju_scheduler import ScheduledTask, Scheduler, Server
 from uvlog import Logger
 
-from kaiju_app.bases import Error
+from kaiju_app.errors import ErrorData
+from kaiju_app.scheduler import Scheduler
+from kaiju_app.server import Server
 from kaiju_app.utils import Namespace, State, timeout
 
 __all__ = [
@@ -23,12 +24,9 @@ __all__ = [
     "ServiceState",
     "ServiceFieldType",
     "Health",
-    "Error",
     "ServiceInitFailed",
     "ServiceInitTimeout",
     "run_app",
-    "Scheduler",
-    "ScheduledTask",
 ]
 
 _AsyncCallable = Callable[..., Awaitable[Any]]
@@ -56,14 +54,14 @@ class Health(TypedDict):
 
     healthy: bool  #: service is healthy
     stats: dict[str, Any]  #: reserved for stats and metrics
-    errors: list[str]  #: list of error messages
+    errors: list[ErrorData]  #: list of error messages
 
 
-class ServiceInitFailed(Error, RuntimeError):
+class ServiceInitFailed(RuntimeError):
     """Initialization of a service has failed."""
 
 
-class ServiceInitTimeout(Error, RuntimeError):
+class ServiceInitTimeout(RuntimeError):
     """Service is exceeded its timeout during the initialization."""
 
 
@@ -127,7 +125,7 @@ class Service(ABC):
         start.
         """
 
-    async def post_init(self):
+    async def post_init(self) -> None:
         """Run additional scripts and commands after the :py:meth:`~kaiju_base.app.Service.start`.
 
         The main difference of :py:meth:`~kaiju_base.app.Service.post_init` from
@@ -150,7 +148,7 @@ class Service(ABC):
         close.
         """
 
-    def json_repr(self) -> dict:
+    def json_repr(self) -> dict[str, Any]:
         """Get service information for inspection or logging."""
         return {}
 
@@ -179,7 +177,7 @@ class Service(ABC):
                 await self.close()
                 exc = RuntimeError(f'Service is not healthy: "{self.name}"')
                 for error in health["errors"]:
-                    exc.add_note(error)
+                    exc.add_note(error["message"])
                 raise exc from None
 
             self.state.set(ServiceState.READY)
@@ -234,6 +232,12 @@ class Application:
     See :py:obj:`~kaiju_base.app.Environment` for a list of standard environments. It's not mandatory but recommended.
     """
 
+    scheduler: Scheduler = field()
+    """Internal task scheduler."""
+
+    server: Server = field()
+    """Internal task server."""
+
     context: ContextVar[dict | None] = APP_CONTEXT
     """Context var to store a server call context."""
 
@@ -255,12 +259,6 @@ class Application:
     optional_services: list[str] = field(default_factory=list)
     """List of optional services not required for the app start."""
 
-    scheduler: Scheduler = field(default_factory=Scheduler)
-    """Internal task scheduler."""
-
-    server: Server = field(default_factory=Server)
-    """Internal task server."""
-
     namespace: Namespace = field(init=False)
     """Application namespace for consistent key names across the app."""
 
@@ -280,13 +278,15 @@ class Application:
 
     def __post_init__(self):
         """Initialize."""
+        self.server = Server(logger=self.logger.get_child("_server"))
+        self.scheduler = Scheduler()
         self.services = MappingProxyType(self._service_map)
         self.namespace = Namespace(self.env, self.name)
 
     def add_services(self, *services: Service) -> None:
         """Add new services to the application.
 
-        The loading order must be resolved.
+        The services must be in loading order.
         """
         for service_ in services:
             if service_.name in self._service_map:
@@ -294,19 +294,37 @@ class Application:
             self._service_loading_order.append(service_)
             self._service_map[service_.name] = service_
 
-    def set_context_var(self, key: str, value: Any) -> None:
-        """Set variable in the current async call context."""
+    def set_context_var(self, key: str, value: Any, /) -> None:
+        """Set a key in the context var.
+
+        It's recommended to use lowercase alphanum key names as in Python variables. Do not overuse context vars
+        because they make the code more implicit.
+
+        :raises ValueError: If the key is already set.
+        """
         ctx = self.context.get()
         if ctx is None:
-            self.context.set({"_vars": {key: value}})
-        else:
-            ctx["_vars"][key] = value
+            ctx = {}
+            self.context.set(ctx)
+        if key in ctx:
+            raise ValueError(f"Trying to set a context var key twice: {key}.")
+        ctx[key] = value
 
-    def get_context_var(self, key: str) -> Any | None:
-        """Get key from the current async call context or None if no key."""
+    def update_context_var(self, key: str, value: Any, /) -> None:
+        """Update a key in the context variable.
+
+        :raise KeyError: If the key is not found.
+        """
         ctx = self.context.get()
-        if ctx is not None and "_vars" in ctx:
-            return ctx["_vars"].get(key)
+        if ctx is None or key not in ctx:
+            raise KeyError(f"No such context var key: {key}.")
+        ctx[key] = value
+
+    def get_context_var(self, key: str, /) -> Any | None:
+        """Get a key from the context var."""
+        ctx = self.context.get()
+        if ctx:
+            return ctx.get(key)
         return None
 
     def json_repr(self) -> dict[str, Any]:
@@ -334,7 +352,7 @@ class Application:
         }
 
     async def inspect(self, services: list[str] | None = None) -> dict:
-        """Inspect the app and get all services data and health."""
+        """Inspect the app and its services."""
         app_data = self.json_repr()
         healthy = True
         for service_data in app_data["services"]:
@@ -353,28 +371,14 @@ class Application:
         if self.debug:
             self.logger.warning("running in debug mode")
 
-        await self.server.start()
+        with self.state:
+            self.state.set(ServiceState.STARTING)
+            await self.server.start()
+            for service_id, _service in enumerate(self._service_loading_order):
+                await self._start_service(service_id, _service)
+            await self.scheduler.start()
+            self.state.set(ServiceState.READY)
 
-        for n, _service in enumerate(self._service_loading_order):
-            try:
-                await asyncio.wait_for(_service.start(), self.service_start_timeout_s)
-            except asyncio.TimeoutError:
-                if _service.name not in self.optional_services:
-                    await self.stop(n)
-                    raise ServiceInitTimeout(
-                        f"Service took too long to start: {_service.name}\n\n"
-                        f"Fix: Optimize the service `init()` OR move time consuming code to service `post_init()` "
-                        f"OR increase `app.settings.service_start_timeout_s` in project config file."
-                    ) from None
-
-                self.logger.error("Service took too long to start.", service=_service.name)
-            except Exception as exc:
-                if _service.name not in self.optional_services:
-                    await self.stop(n)
-                    raise ServiceInitFailed("Service failed on start.", service=_service.name) from exc
-                self.logger.error("service failed on start", exc_info=exc, service=_service.name)
-
-        await self.scheduler.start()
         self._post_init_task = asyncio.ensure_future(
             asyncio.gather(*(self._post_init_service(_service) for _service in self._service_loading_order))
         )
@@ -383,24 +387,43 @@ class Application:
             self.logger.info("inspection data", data=inspect_data)
         self.logger.debug("started")
 
-    async def stop(self, _idx: int | None = None, /) -> None:
+    async def stop(self, service_idx: int | None = None, /) -> None:
         """Stop all services and tasks."""
         self.logger.debug("stopping")
-        await self.scheduler.stop()
-        if _idx is None:
-            _idx = len(self._service_loading_order)
-        if self._post_init_task and not self._post_init_task.done():
-            self._post_init_task.cancel()
-        await asyncio.gather(
-            *(self._close_service(_service) for _service in reversed(self._service_loading_order[:_idx])),
-            return_exceptions=True,
-        )
-        if self._post_init_task and not self._post_init_task.done():
-            with suppress(asyncio.CancelledError):
-                await self._post_init_task
-        self._post_init_task = None
-        await self.server.stop()
+
+        with self.state:
+            self.state.set(ServiceState.CLOSING)
+            await self.scheduler.stop()
+            if service_idx is None:
+                service_idx = len(self._service_loading_order)
+            if self._post_init_task and not self._post_init_task.done():
+                self._post_init_task.cancel("cancelled by the app")
+                with suppress(asyncio.CancelledError):
+                    await self._post_init_task
+            for _service in reversed(self._service_loading_order[:service_idx]):
+                await self._close_service(_service)
+            await self.server.stop()
+            self.state.set(ServiceState.CLOSED)
+
         self.logger.info("stopped")
+
+    async def _start_service(self, service_idx: int, _service: Service, /) -> None:
+        try:
+            await asyncio.wait_for(_service.start(), self.service_start_timeout_s)
+        except asyncio.TimeoutError:
+            if _service.name not in self.optional_services:
+                await self.stop(service_idx)
+                raise ServiceInitTimeout(
+                    f"Service took too long to start: {_service.name}\n\n"
+                    f"Fix: Optimize the service `init()` OR move time consuming code to service `post_init()` "
+                    f"OR increase `app.settings.service_start_timeout_s` in project config file."
+                ) from None
+            self.logger.error("Service took too long to start.", service=_service.name)
+        except Exception as exc:
+            if _service.name not in self.optional_services:
+                await self.stop(service_idx)
+                raise ServiceInitFailed(f'Service failed on start: "{_service.name}"') from exc
+            self.logger.error("service failed on start", exc_info=exc, service=_service.name)
 
     async def _post_init_service(self, _service: Service, /) -> None:
         try:
@@ -435,12 +458,16 @@ class Application:
 
 
 def run_app(app: Application, /, loop: asyncio.AbstractEventLoop | None = None) -> None:
+    """Run an application in the event loop.
+
+    The app will run forever and exit on `KeyboardInterrupt` or `SystemExit` event.
+    """
     if not loop:
         loop = asyncio.new_event_loop()
     if app.debug:
         loop.set_debug(True)
+    loop.run_until_complete(app.start())
     try:
-        loop.run_until_complete(app.start())
         loop.run_forever()
     except (SystemExit, KeyboardInterrupt):
         pass

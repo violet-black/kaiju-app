@@ -1,16 +1,43 @@
 kaiju-app
 ---------
 
+Guides
+------
+
 .. toctree::
    :maxdepth: 1
 
    app_guide
-   service_guide
-   config_guide
+   guide/service
+   guide/packages
+
+Specs
+-----
+
+.. toctree::
+   :maxdepth: 1
+
    conf_spec
-   packages
-   reference
 
-.. include:: quickstart.rst
+Library reference
+-----------------
 
-.. include:: license.rst
+.. toctree::
+   :maxdepth: 1
+
+   api/app
+   api/bases
+   api/configurator
+   api/errors
+   api/loader
+   api/scheduler
+   api/server
+   api/utils
+
+Other
+-----
+
+.. toctree::
+   :maxdepth: 1
+
+   license

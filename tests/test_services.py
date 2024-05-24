@@ -4,6 +4,9 @@ import pytest
 import uvlog
 
 from kaiju_app.app import Application, Service, ServiceState, APP_CONTEXT, Health
+from kaiju_app.errors import wrap_exception
+from kaiju_app.server import Server
+from kaiju_app.scheduler import Scheduler
 
 
 class _Service(Service):
@@ -35,7 +38,7 @@ class _Service(Service):
             try:
                 await self.health_f()
             except Exception as exc:
-                h['errors'].append(str(exc))
+                h['errors'].append(wrap_exception(exc).json_repr())
                 h['healthy'] = False
         return h
 
@@ -93,7 +96,7 @@ class TestApplication:
     def _app(self):
         return Application(
             name='test_app', env='pytest', logger=_logger, context=APP_CONTEXT, service_start_timeout_s=0.01,
-            post_init_timeout_s=0.01)
+            post_init_timeout_s=0.01, server=Server(logger=_logger), scheduler=Scheduler())
 
     async def test_initialization(self, _app):
         _service_1 = _Service(app=_app, name='_Service_1', logger=_logger.get_child('_Service_1'))

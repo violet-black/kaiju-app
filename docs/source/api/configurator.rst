@@ -1,32 +1,22 @@
-.. _config-guide:
+.. _configurator:
 
-Configuration guide
-===================
+:tocdepth: 2
+
+**configurator** - configure an application
+-------------------------------------------
 
 Configurations are split into two types: one type is *template* and the other is *environment*. The idea is that you
-have a template file structured in a certain way (see :ref:`config-spec`) with placeholders for actual values, and
-the values themselves are provided using a flat-structured environment file.
+have a template file structured in a certain way (see :ref:`configuration specification <config-spec>`)
+with placeholders for actual values, and the values themselves are provided using a flat-structured environment file.
 
 .. note::
 
-    The library doesn't impose any configuration file format by design. You may use any file formats compatible with
-    config data. However the suggested options are to use JSON for environment files and either JSON or better YAML for
-    structured templates. Or you can just use Python files.
+    The library isn't restricted by any configuration file format by design. You may use any file format for
+    the data. The suggested option is to use Yaml or StrictYaml for configuration templates and Json for environment
+    files.
 
-When creating a configuration you pass a list of templates and a list of env dicts to the configurator.
-
-.. code-block:: python
-
-    config = configurator.create_configuration([template1, template2], [env1, env2])
-
-The configurator does a few things there:
-
-1. Merge all templates from first to last.
-2. Merge all envs from first to last.
-3. Add os environment variables on top of the resulting environment dictionary.
-4. Add values from `--env` CLI flags on top of this.
-5. Evaluate the template using  our `template-dict <http://template-dict.readthedocs.io>`_ library.
-6. Normalize the resulting dictionary into a valid :py:class:`kaiju_app.loader.ProjectConfig` dict.
+When creating a configuration you pass a list of templates and a list of env dicts
+to the :py:class:`~kaiju_app.configurator.Configurator`.
 
 To illustrate this, imagine you have a config file like this:
 
@@ -72,3 +62,11 @@ variable (env) will be loaded and evaluated replacing the value from the env fil
 
     Try to remember that env and CLI values are evaluated to Python types. Passing `env=42` would result in an integer
     value. To prevent this use braces: `env='42'`
+
+.. autoclass:: kaiju_app.configurator.Configurator
+   :members:
+   :undoc-members:
+
+.. data:: kaiju_app.configurator.config_arg_parser
+
+  Default CLI argument parser used by the configurator when loading a config. It's used for CLI `--env` params.

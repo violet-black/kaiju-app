@@ -1,7 +1,18 @@
 .. _config-spec:
 
-Config specification
-====================
+Configuration specification
+===========================
+
+A complete config file would look like the following.
+
+.. code-block:: yaml
+
+    debug: ...
+    packages: ...
+    logging: ...
+    app: ...
+
+The sections of the file are described below. Yaml format is used for convenience.
 
 debug
 -----
@@ -43,6 +54,47 @@ official documentation for detail.
             json:
                 keys: ["message", "name", "asctime", "ctx", "extra"]
 
+loggers
+^^^^^^^
+
+List of pre-initialized loggers and their settings. You can customize application logger settings here by using
+the app name for the logger name (key). All service loggers are also derived from the app logger when an app
+is created.
+
+**handlers**
+
+: list[str] = ['stderr']
+
+Customize the list of handlers for this particular logger and its children.
+
+handlers
+^^^^^^^^
+
+You can customize handlers behaviour in this sections. The default customizable handlers are: `stderr` and `stdout`.
+
+**cls**
+
+: str
+
+Handler type for this handler. It's `StreamHandler` by default.
+
+**formatter**
+
+: str = 'text'
+
+Formatter used for this particular handler. It's `text` by default.
+
+formatters
+^^^^^^^^^^
+
+You can customize log formatters in this section. The default two types of formatters are `json` and `text`.
+
+**keys**
+
+: str
+
+For `json` formatter only: list of keys in a log message to serialize. By default all keys are serialized.
+
 app
 ---
 
@@ -55,6 +107,9 @@ and their configurations.
         name: "my_app"
         env: "prod"
         loglevel: "INFO"
+        scheduler:
+        server:
+            max_parallel_tasks: 256
         settings:
             service_start_timeout_s: 60
             some_setting: "abc"
@@ -92,10 +147,26 @@ loglevel
 Override log level for the application logger. Since all services are initialized from the application logger as a parent
 this also sets the log level for all the service loggers.
 
+scheduler
+^^^^^^^^^
+
+Application internal task scheduler settings. Currently nothing of interest to store here. This value can be omitted.
+See :py:class:`~kaiju_app.scheduler.Scheduler` for more info.
+
+server
+^^^^^^
+
+Application internal task server settings available via `app.server`.
+See :py:class:`~kaiju_app.scheduler.Server` for more info.
+
+**max_parallel_tasks**
+
+: int = 256
+
+Maximum number of concurrent tasks submitted to the asyncio loop.
+
 settings
 ^^^^^^^^
-
-: dict
 
 Application parameters are passed directly to the `Application.__init__()` on creating an app. You can write any
 arbitrary parameters there as long as they are present in the init section.
@@ -131,6 +202,13 @@ Output inspection data to the logs after the app start.
 : dict
 
 Arbitrary metadata. Should not be used by anything but logs / inspections.
+
+optional_services
+^^^^^^^^^^^^^^^^^
+
+: list[str]
+
+List of optional services (not required to start).
 
 services
 ^^^^^^^^
@@ -168,10 +246,3 @@ Override service logger level for this particular service.
 
 Arbitrary settings for the service `__init__()`. You can use any prameters in there as long as they present in the
 service init.
-
-optional_services
-^^^^^^^^^^^^^^^^^
-
-: list[str]
-
-List of optional services (not required to start).

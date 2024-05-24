@@ -1,15 +1,16 @@
 """Utility functions and classes."""
 
 import asyncio
-from abc import ABC
+import re
 from ast import literal_eval
-from bisect import bisect
-from collections.abc import Hashable, Sized
+from collections.abc import Hashable
 from contextlib import suppress
-from typing import Any, Collection, Generic, Iterable, Mapping, NewType, TypeVar
+from types import MappingProxyType
+from typing import Any, Iterable, Generic, Mapping, NewType, TypeVar, Self, Callable, Awaitable
 
-from kaiju_scheduler import RetryError, retry, timeout
 from template_dict import Template
+
+from kaiju_app.bases import Logger
 
 __all__ = [
     "timeout",
@@ -17,7 +18,6 @@ __all__ = [
     "RetryError",
     "retry",
     "State",
-    "SortedStack",
     "Template",
     "merge_dicts",
     "Namespace",
@@ -103,15 +103,37 @@ def eval_string(value: str, /) -> Any:
 
 
 class Namespace:
-    """Namespace object to manage string suffixes and prefixes.
+    """Namespace object allows consistently concatenate name parts.
+
+    Keys and other namespaces may be derived from namespaces, which allows one to organize keys and prevent
+    key collisions. Use namespaces when creating cache keys, topic names, etc.
+
+    Specification
+    =============
+
+    - Symbols in keys and namespace names MUST be one of: [0-9a-z_-]
+    - Namespaces and subnamespaces MUST be prefixed with _ (underscore)
+    - Keys MUST NOT be prefixed with _ (underscore)
+    - Name parts MUST be split by . (dot)
+
+    Examples
+    ========
+
+    Example of a namespace:
+
+    '_dev._my_app._cache'
+
+    Example of a key:
+
+    '_dev._my_app._cache.some_key'
 
     Create a namespace:
 
     >>> Namespace('dev')
-    Namespace('_dev')
+    <Namespace('_dev')>
 
     >>> Namespace('dev', 'app')
-    Namespace('_dev._app')
+    <Namespace('_dev._app')>
 
     Check if namespaces are the same:
 
@@ -123,11 +145,6 @@ class Namespace:
     >>> Namespace('dev').get('key')
     '_dev.key'
 
-    Alternatively:
-
-    >>> Namespace('dev')['key']
-    '_dev.key'
-
     Check if a key matches the namespace:
 
     >>> '_dev.key' in Namespace('dev')
@@ -136,32 +153,28 @@ class Namespace:
     Get a sub-namespace:
 
     >>> Namespace('dev', 'app').get_child('cache')
-    Namespace('_dev._app._cache')
+    <Namespace('_dev._app._cache')>
 
-    You can use namespace as keys:
+    You can use namespace as map keys:
 
     >>> {Namespace('dev'): [], Namespace('prod'): []}
-    {Namespace('_dev'): [], Namespace('_prod'): []}
+    {<Namespace('_dev')>: [], <Namespace('_prod')>: []}
 
     """
 
-    namespace_prefix = "_"
-    """Namespace prefix is used before each namespace name, it distinguish namespaces from keys."""
-
-    delimiter = "."
-    """Delimiter between a namespace and a sub-namespace or a key."""
-
     __slots__ = ("_name",)
+
+    _invalid_chars = re.compile(r"[^a-z0-9_-]")
 
     def __init__(self, *name: str):
         _name = []
         for name_part in name:
-            if name_part.startswith(self.namespace_prefix):
-                name_part = name_part.lstrip(self.namespace_prefix)
-            if self.delimiter in name_part:
-                raise ValueError(f'Name must not contain a delimiter symbol "{self.delimiter}", got "{name_part}"')
-            _name.append(f"{self.namespace_prefix}{name_part}")
-        self._name = self.delimiter.join(_name)
+            if name_part.startswith("_"):
+                name_part = name_part.lstrip("_")
+            if self._invalid_chars.search(name_part):
+                raise ValueError("Namespace name must contain one of: a-z, 0-9, - or _")
+            _name.append(f"_{name_part}")
+        self._name = ".".join(_name)
 
     def get_child(self, suffix: str, /) -> "Namespace":
         """Get sub-namespace from the current one."""
@@ -169,36 +182,36 @@ class Namespace:
 
     def get(self, key: str, /) -> NSKey:
         """Get a key what belongs to this namespace."""
-        if self.delimiter in key:
-            raise ValueError(f'Key must not contain a delimiter symbol "{self.delimiter}"')
-        if key.startswith(self.namespace_prefix):
-            raise ValueError(f'Key must not start with a namespace prefix "{self.namespace_prefix}"')
-        return NSKey(self.delimiter.join((self._name, key)))
-
-    def __getitem__(self, key: str, /) -> NSKey:
-        return self.get(key)
+        if key.startswith("_"):
+            raise ValueError(f"Namespace key must not start with an underscore")
+        if self._invalid_chars.search(key):
+            raise ValueError(f"Namespace key must contain one of: a-z, 0-9, - or _")
+        return NSKey(".".join((self._name, key)))
 
     def __contains__(self, key: NSKey | str, /) -> bool:
         """Check if a key belongs to the namespace."""
         return key.startswith(self._name)
 
-    def __eq__(self, other):
+    def __eq__(self, other, /) -> bool:
         return isinstance(other, Namespace) and str(self) == str(other)
 
     def __hash__(self) -> int:
         return hash(self._name)
 
-    def __repr__(self):
-        return f"Namespace('{self._name}')"
+    def __repr__(self) -> str:
+        return f"<Namespace('{self._name}')>"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self._name
 
 
-class State(Generic[_Status], ABC):
-    """Awaitable state machine.
+class State(Generic[_Status]):
+    """State machine.
 
-    To create you state machine you must create a status list and assign it to your subclass.
+    The state object allows one to manage object state and also asynchronously wait for a specific state.
+
+    To create you state object you must create a status list and assign it to your subclass. State values themselves
+    must be hashable.
 
     >>> from enum import Enum
     ...
@@ -208,9 +221,8 @@ class State(Generic[_Status], ABC):
     ...     ACTIVE = 'ACTIVE'
     ...     BANNED = 'BANNED'
 
-    Now you can create and maintain the state of your object. Note that by default it uses the first status from the
-    enum unless `state` parameter is explicitly provided.
-    You can get the current state using :py:meth:`~kaiju_base.helpers.State.get` method.
+    Now you can create and maintain the state of your object by passing an iterable of all status types and the current
+    status.
 
     >>> class User:
     ...     def __init__(self):
@@ -221,13 +233,14 @@ class State(Generic[_Status], ABC):
     'INACTIVE'
 
     >>> str(user.state)
-    'INACTIVE'
+    'UserStatus.INACTIVE'
 
-    You can set the state using :py:meth:`~kaiju_base.helpers.State.set` method.
+    Set the state:
 
     >>> user.state.set(UserStatus.ACTIVE)
 
-    It's also possible to use the state change contextto change an object state inside a function.
+    You can manage state inside the state object context. This ensures that if an error happens then the state will be
+    reverted to the one prior to entering the context.
 
     >>> with user.state:
     ...     user.state.set(UserStatus.BANNED)
@@ -237,7 +250,7 @@ class State(Generic[_Status], ABC):
     ...
     ValueError: Unhandled error
 
-    In any error the last state before context is preserved.
+    As you can see the state was reverted to 'ACTIVE' due to an error:
 
     >>> user.state.get().name
     'ACTIVE'
@@ -249,26 +262,23 @@ class State(Generic[_Status], ABC):
     >>> other_user.state == user.state
     True
 
-    You can also check if the state object has a particular inner state by calling this method.
+    You can also check the inner status directly:
 
     >>> other_user.state.is_(UserStatus.ACTIVE)
     True
 
-    Of course, a state machine would be useless in the async context if there would be no way to wait
-    for a particular state. You can use :py:meth:`~kaiju_base.helpers.State.wait` to wait for a particular state.
+    There's a way to continue only if a particular state has been reached by waiting for it asynchronously.
 
     >>> async def wait_banned(_user: User):
     ...  await _user.state.wait(UserStatus.BANNED)
     ...  return 'Banned!'
-
-    Test example:
-
+    ...
     >>> async def ban_user(_user: User):
     ...     _user.state.set(UserStatus.BANNED)
-
+    ...
     >>> async def _main():
     ...     return await asyncio.gather(wait_banned(user), ban_user(user))
-
+    ...
     >>> asyncio.run(_main())
     ['Banned!', None]
 
@@ -276,7 +286,7 @@ class State(Generic[_Status], ABC):
 
     __slots__ = ("_events", "_status", "_fallback_status")
 
-    def __init__(self, status_list: Collection[_Status], status: _Status):
+    def __init__(self, status_list: Iterable[_Status], status: _Status):
         """Initialize.
 
         :param status_list:
@@ -296,17 +306,21 @@ class State(Generic[_Status], ABC):
     def set(self, state: _Status, /) -> None:
         for _state in self._events.values():
             _state.clear()
+        if state not in self._events:
+            raise ValueError(f'Unexpected state: "{state}"')
         self._events[state].set()
         self._status = state
 
     async def wait(self, state: _Status, /) -> None:
+        if state not in self._events:
+            raise ValueError(f'Unexpected state: "{state}"')
         await self._events[state].wait()
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         self._fallback_status = self._status
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if exc_type:
             self.set(self._fallback_status)
 
@@ -318,157 +332,88 @@ class State(Generic[_Status], ABC):
     def __hash__(self, /) -> int:
         return hash(self.get())
 
-    def __str__(self):
-        return str(self._status.value)
+    def __str__(self) -> str:
+        return str(self._status)
 
-    def __repr__(self):
-        return f"<{self.__class__.__name__}: {repr(self._status)}>"
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__name__}({tuple(self._events.keys())}, {repr(self._status)}>)"
 
 
-class SortedStack(Sized, Iterable, Generic[_Item]):
-    """Sorted stack of elements.
+class RetryError(Exception):
+    """Error recognized by :py:func:`~kaiju_scheduler.utils.retry` as suitable for retry."""
 
-    >>> stack = SortedStack({'dogs': 12, 'sobaki': 5})
-    >>> stack = SortedStack(stack)
-    >>> stack.add(*SortedStack({'cats': 5}))
 
-    Selection:
+def timeout(time_sec: float, /):
+    """Execute async callables within a timeout.
 
-    >>> stack.select(8)
-    ['sobaki', 'cats']
+    .. code-block:: python
 
-    >>> stack.rselect(8)
-    ['dogs']
-
-    Insertion and removal:
-
-    >>> stack.add(('koty', 1))
-    >>> stack.pop_many(3)
-    ['koty']
-
-    >>> stack.pop()
-    'sobaki'
-
-    >>> len(stack)
-    2
-
-    >>> stack.clear()
-    >>> bool(stack)
-    False
+        async with timeout(5):
+            await do_something_asynchronous()
 
     """
+    return _Timeout(time_sec)
 
-    __slots__ = ("_scores", "_values")
 
-    def __init__(self, items: Iterable[tuple[_Item, Any]] | dict[_Item, Any], /):
-        """Initialize."""
-        self._scores: list[Any] = []
-        self._values: list[_Item] = []
-        if items:
-            if isinstance(items, dict):
-                items = items.items()
-            self.add(*items)
+class _Timeout:
+    __slots__ = ("_timeout", "_loop", "_task", "_handler")
 
-    @property
-    def lowest_score(self) -> Any | None:
-        """Get the lowest score in the stack."""
-        return next(iter(self._scores), None)
+    _handler: asyncio.Handle
 
-    def add(self, *items: tuple[_Item, Any]):
-        """Extend the stack by adding more than one element."""
-        for item, score in items:
-            idx = bisect(self._scores, score)
-            self._scores.insert(idx, score)
-            self._values.insert(idx, item)
+    def __init__(self, time_sec: float, loop=None):
+        self._timeout = max(0.0, time_sec)
+        self._loop = loop
+        # self._handler: asyncio.Task = None
 
-    def select(self, score_threshold, /) -> list[_Item]:
-        """Select and return items without removing them from the lowest score to `score_threshold`.
-
-        The values are guaranteed to be in order.
-        """
-        return self._select(score_threshold, reverse=False)
-
-    def rselect(self, score_threshold: Any, /) -> list[_Item]:
-        """Select and return items without removing them from the highest score to `score_threshold`.
-
-        The values are guaranteed to be in order.
-        """
-        return self._select(score_threshold, reverse=True)
-
-    def pop(self) -> _Item:
-        """Pop a single element which has the lowest score.
-
-        :raises StopIteration: if there are no values to return.
-        """
-        return self._pop(reverse=False)
-
-    def rpop(self) -> _Item:
-        """Pop a single element which has the highest score.
-
-        :raises StopIteration: if there are no values to return.
-        """
-        return self._pop(reverse=True)
-
-    def pop_many(self, score_threshold: Any, /) -> list[_Item]:
-        """Pop and return values with scores less than `score_threshold`.
-
-        The returned values are guaranteed to be in order.
-        Returns an empty list if no values.
-        """
-        return self._pop_many(score_threshold, reverse=False)
-
-    def rpop_many(self, score_threshold: Any, /) -> list[_Item]:
-        """Pop and return values with scores greater than `score_threshold`.
-
-        Returned values are guaranteed to be in order.
-        """
-        return self._pop_many(score_threshold, reverse=True)
-
-    def clear(self) -> None:
-        """Clear all values."""
-        self._scores.clear()
-        self._values.clear()
-
-    def __iter__(self):
-        return iter(zip(self._values, self._scores))
-
-    def __len__(self):
-        return len(self._values)
-
-    def _pop_many(self, score_threshold: Any, reverse: bool = False) -> list[_Item]:
-        """Pop values with scores less than `score`.
-
-        The returned values are guaranteed to be in order.
-        Returns an empty list if no values.
-        """
-        idx = bisect(self._scores, score_threshold)
-        if reverse:
-            self._scores = self._scores[:idx]
-            values, self._values = self._values[idx:], self._values[:idx]
+    async def __aenter__(self):
+        if self._loop is None:
+            loop = asyncio.get_running_loop()
         else:
-            self._scores = self._scores[idx:]
-            values, self._values = self._values[:idx], self._values[idx:]
-        return values
+            loop = self._loop
+        task = asyncio.current_task()
+        self._handler = loop.call_at(loop.time() + self._timeout, self._cancel_task, task)
+        return self
 
-    def _pop(self, reverse: bool = False) -> _Item:
-        if not self._values:
-            raise StopIteration("Empty stack.")
-        if reverse:
-            del self._scores[-1]
-            return self._values.pop(-1)
-        else:
-            del self._scores[0]
-            return self._values.pop(0)
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is asyncio.CancelledError:
+            raise asyncio.TimeoutError("Timeout")
+        if self._handler:
+            self._handler.cancel()
 
-    def _select(self, score_threshold: Any, reverse: bool = False) -> list[_Item]:
-        """Select and return items without removing them from the stack.
+    @staticmethod
+    def _cancel_task(task: asyncio.Task):
+        task.cancel()
 
-        The values are guaranteed to be in order.
-        """
-        idx = bisect(self._scores, score_threshold)
-        if reverse:
-            values = self._values[idx:]
-            values.reverse()
-            return values
-        else:
-            return self._values[:idx]
+
+async def retry(
+    func: Callable[..., Awaitable[Any]],
+    retries: int,
+    args: Iterable[Any] = tuple(),
+    kws: Mapping[str, Any] = MappingProxyType({}),
+    *,
+    interval_s: float = 1.0,
+    timeout_s: float = 120.0,
+    catch_exceptions: tuple[type[BaseException], ...] = (TimeoutError, IOError, ConnectionError, RetryError),
+    logger: Logger | None = None,
+):
+    """Retry function call
+
+    :param func: async callable
+    :param retries: number of retries
+    :param args: positional arguments
+    :param kws: keyword arguments
+    :param interval_s: interval in seconds between retries
+    :param timeout_s: total timeout in seconds for all retries
+    :param catch_exceptions: catch certain exception types and retry when they happen
+    :param logger: optional logger
+    :return: returns the function result
+    """
+    async with timeout(timeout_s):
+        while retries + 1 > 0:
+            try:
+                return await func(*args, **kws)
+            except catch_exceptions as exc:
+                retries -= 1
+                if logger is not None:
+                    logger.info("retrying on error", exc_info=exc)
+                await asyncio.sleep(interval_s)

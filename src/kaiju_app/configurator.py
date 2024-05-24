@@ -7,11 +7,11 @@ from typing import Any
 from kaiju_app.loader import AppConfig, ProjectConfig, ServiceConfig
 from kaiju_app.utils import Template, eval_string, merge_dicts
 
-__all__ = ["Configurator", "default_argument_parser"]
+__all__ = ["Configurator", "config_arg_parser"]
 
 
-default_argument_parser = argparse.ArgumentParser()
-default_argument_parser.add_argument(
+config_arg_parser = argparse.ArgumentParser()
+config_arg_parser.add_argument(
     "-e",
     "--env",
     dest="env",
@@ -44,19 +44,19 @@ class Configurator:
         load_os_env: bool = False,
         load_cli_env: bool = False,
     ) -> ProjectConfig:
-        """Create a project configuration from template and environment data.
+        """Create a project configuration from templates and environment data.
 
-        Usually you would store configs in config files. Load them using an appropriate method (json or yaml loader)
-        and then pass to `templates` and `envs` arguments.
+        After you load configs and envs from files you may pass them to this method. The resulting configuration
+        dict should be fed to :py:class:`~kaiju_app.loader.ApplicationLoader` to create an application.
 
-        Initialization order:
+        Loading order:
 
         1. Merge templates from first to last
         2. Merge env dicts from first to last
         3. Load OS environment variables
         4. Load CLI environment variables from '--env' flags
         5. Evaluate template using resulting env dict
-        6. Normalize and return the project config dict
+        6. Normalize and return the project config
 
         See :py:func:`~kaiju_app.utils.merge_dicts` function on the rules of how dictionaries are merged.
 
@@ -74,7 +74,7 @@ class Configurator:
         return self.create_project_config(config_dict)
 
     @staticmethod
-    def get_os_env(template: Template, /) -> dict:
+    def get_os_env(template: Template, /) -> dict[str, Any]:
         os_env = {}
         for key in template.keys:
             value = os.getenv(key)
@@ -84,7 +84,7 @@ class Configurator:
         return os_env
 
     @staticmethod
-    def get_cli_env(template: Template, parser: argparse.ArgumentParser = default_argument_parser) -> dict:
+    def get_cli_env(template: Template, parser: argparse.ArgumentParser = config_arg_parser) -> dict[str, Any]:
         cli_env = {}
         ns, _ = parser.parse_known_args()
         for env_value in ns.env:

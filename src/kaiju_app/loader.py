@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field, fields
 from graphlib import CycleError, TopologicalSorter
 from importlib import import_module
+from inspect import isclass
 from typing import Mapping, Required, TypedDict, TypeVar
 
 import uvlog
@@ -27,23 +28,47 @@ _Service = TypeVar("_Service", bound=Service)
 _SENTINEL = ...
 
 
-class DependencyCycleError(RuntimeError):
-    """Dependency cycle has been detected."""
-
-
-class DependencyNotFound(RuntimeError):
-    """Dependency service not found in the list of application services."""
-
-
-class ServiceNameConflict(RuntimeError):
-    """A dependency with the same name already exists."""
-
-
 class ConfigurationError(RuntimeError):
-    """Invalid configuration."""
+    """Invalid configuration.
+
+    This is the base type for all configuration errors raised by the application loader. You may catch this
+    exception to intercept all configuration errors.
+    """
+
+
+class DependencyCycleError(ConfigurationError):
+    """Dependency cycle has been detected.
+
+    This is due to *one service requesting another while the other one (or one of its dependencies)
+    requires the first one*.
+    To resolve the cycle you should manually set `nowait=True` in one of your service fields. The loader cannot know
+    which service is actually required first, so it's up to the developer to resolve such type of conflicts.
+    """
+
+
+class DependencyNotFound(ConfigurationError):
+    """Dependency service not found in the list of application services.
+
+    This happens because *there's no such service class* in the application loader `service_classes`.
+    You need to add your class to this mapping.
+    """
+
+
+class ServiceNameConflict(ConfigurationError):
+    """A dependency with the same name already exists.
+
+    This happens then where are two services with the same name. The names are equal to class names by default, so
+    usually it's due to *two instances of the same class* co-existing. You need to set the name manually for one of
+    the instances to prevent such error.
+    """
 
 
 class ServiceConfig(TypedDict, total=False):
+    """Service configuration.
+
+    The application loader uses this config to initialize a new service.
+    """
+
     cls: Required[str]  #: service class name
     name: str  #: service custom name
     loglevel: uvlog.LevelName | None  #: service logger log level
@@ -52,6 +77,11 @@ class ServiceConfig(TypedDict, total=False):
 
 
 class AppConfig(TypedDict, total=False):
+    """Application configuration.
+
+    The application loader uses this dict to initialize a new application and its services.
+    """
+
     name: Required[str]  #: application unique name
     env: Required[str]  #: application environment name: prod, test, qa, etc.
     loglevel: uvlog.LevelName | None  #: default log level for the app and app services
@@ -63,6 +93,11 @@ class AppConfig(TypedDict, total=False):
 
 
 class ProjectConfig(TypedDict, total=False):
+    """Project configuration.
+
+    This includes the application settings, package imports and other global parameters.
+    """
+
     debug: bool  #: run the project in debug mode
     packages: list[str]  #: list of service packages to import
     logging: uvlog.uvlog._DictConfig  #: loggers and handlers settings
@@ -71,29 +106,44 @@ class ProjectConfig(TypedDict, total=False):
 
 @dataclass
 class ApplicationLoader:
-    """Application loader class constructs an application and services from a config object.
-
-    This class does several things to prepare the app before its start:
-
-    1. Import services from kaiju packages using :py:meth:`~kaiju_base.app.AppLoader.import_packages`. Packages are
-        imported according to the `packages` list in the config file. The services are imported into the
-        :py:attr:`~kaiju_base.app.AppLoader.service_classes` class registry by their class names.
-    2. Load all services using the imported packages.
-    3. Resolve dependencies in :py:obj:`~kaiju_base.app.service` fields and load service instances in these attributes.
-    4. Resolve service starting order according to which dependency each service has.
-    5. Create an application from these services.
-    """
+    """Application loader class constructs an application and services from a config object."""
 
     service_classes: dict[str, type[Service]] = field(default_factory=dict)
-    """Registry of service classes."""
+    """A mapping of service classes.
+
+    You need to add your custom service classes to this mapping if you want the loader to load them.
+    """
 
     allow_service_name_overrides: bool = False
-    """Allow services with the same name to override each other."""
+    """Allow services with the same name to override each other.
+
+    If set it will supress :py:class:`~kaiju_app.loader.ServiceNameConflict` errors on configuration.
+    """
+
+    def add_service_classes_from_module(self, module, /) -> None:
+        """ "Add service classes to the loader map from a module."""
+        for name, obj in module.__dict__.items():
+            if isclass(obj) and issubclass(obj, Service):
+                self.service_classes[name] = obj
 
     def create_all(
         self, app_class: type[_Application], config: ProjectConfig, *, context: ContextVar[dict | None] = APP_CONTEXT
     ) -> _Application:
-        """Load services from packages and return a new application."""
+        """Load services from packages and return a new application.
+
+        :param app_class: the application class to load
+        :param config: the project configuration dict
+        :param context: the application context variable (use default unless necessary)
+
+        Use this method to create a fully working instance of an application. The method will do the following:
+
+        1. Import services from the specified `packages`.
+        2. Create an instance of `app_class`.
+        3. Create services from the `app.services` list in the config.
+        4. Resolve service dependencies and determine their loading order.
+        5. Add the services to the application and return the app.
+
+        """
         self.configure_loggers(config["logging"], context)
         self.load_extensions(config["packages"])
         app = self.create_app(app_class, config["app"], context, config["debug"])
@@ -110,6 +160,7 @@ class ApplicationLoader:
             _module = import_module(f"{pkg_name}.services")
             for name, obj in _module.__dict__.items():
                 if issubclass(obj, Service):
+                    name = f"{pkg_name}.{name}"
                     self.service_classes[name] = obj
 
     @staticmethod

@@ -273,7 +273,7 @@ class Scheduler:
 
     def json_repr(self) -> dict[str, Any]:
         """Get JSON compatible object state info."""
-        _loop_t: float = self._loop.time() if getattr(self, "_loop", None) else None
+        _loop_t: float | None = self._loop.time() if getattr(self, "_loop", None) else None
         return {"started": True, "time": _loop_t, "tasks": [task.json_repr() for task in self._tasks]}
 
     async def __aenter__(self) -> "Scheduler":

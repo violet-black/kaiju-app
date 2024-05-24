@@ -8,9 +8,10 @@ from inspect import isclass
 from typing import Mapping, Required, TypedDict, TypeVar
 
 import uvlog
-from kaiju_scheduler import Scheduler, Server
 
 from kaiju_app.app import APP_CONTEXT, Application, Service, ServiceFieldType
+from kaiju_app.scheduler import Scheduler
+from kaiju_app.server import Server
 
 __all__ = [
     "ApplicationLoader",
@@ -178,7 +179,7 @@ class ApplicationLoader:
             debug=debug,
             logger=app_logger,
             optional_services=config["optional_services"],
-            scheduler=Scheduler(**config["scheduler"], logger=app_logger.get_child("_scheduler")),
+            scheduler=Scheduler(**config["scheduler"]),
             server=Server(**config["server"], logger=app_logger.get_child("_server")),
             **config["settings"],
         )

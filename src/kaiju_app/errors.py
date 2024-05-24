@@ -42,7 +42,7 @@ class _ErrorBaseData(TypedDict):
 class _ErrorDataData(TypedDict):
     code: int  #: error code
     type: str  #: error type name
-    base: _ErrorBaseData  #: error base type
+    base: NotRequired[_ErrorBaseData]  #: error base type
     extra: NotRequired[Mapping[str, Any]]  #: additional info
 
 
@@ -121,14 +121,12 @@ class Error(Exception, ABC):
 
     def json_repr(self) -> ErrorData:
         """JSONRPC compatible error data."""
-        data = _ErrorDataData(
-            code=self.code,
-            type=self.__class__.__name__,
-            base=_ErrorBaseData(
+        data = _ErrorDataData(code=self.code, type=self.__class__.__name__)
+        if self.__class__.__base__:
+            data["base"] = _ErrorBaseData(
                 code=getattr(self.__class__.__base__, "code", -1),
                 type=self.__class__.__base__.__name__,
-            ),
-        )
+            )
         if self.extra:
             data["extra"] = self.extra
         return ErrorData(code=self.code, message=self.args[0], data=data)
@@ -297,7 +295,7 @@ for value in list(globals().values()):
         ERRORS[value.code] = value
 
 
-def create_error(data: ErrorData, error_types: Mapping[int, type[Error]] = None) -> Error:
+def create_error(data: ErrorData, error_types: Mapping[int, type[Error]] | None = None) -> Error:
     """Create an error object from error data."""
     if error_types is None:
         error_types = ERRORS
@@ -315,6 +313,6 @@ def create_error(data: ErrorData, error_types: Mapping[int, type[Error]] = None)
 _Error = TypeVar("_Error", bound=Error)
 
 
-def wrap_exception(exc: Exception, error_type: type[_Error] = Error) -> _Error:
+def wrap_exception(exc: Exception, wrap_type: type[_Error] = Error) -> _Error:
     """Convert a Python exception to an RPC compatible error."""
-    return error_type(str(exc), from_=exc.__class__.__name__)
+    return wrap_type(str(exc), from_=exc.__class__.__name__)

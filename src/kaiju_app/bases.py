@@ -17,16 +17,61 @@ class Logger(Protocol):
     """Logger interface."""
 
     @abstractmethod
-    def critical(self, msg: str, /, *args, exc_info: BaseException | None = None, **kwargs) -> None: ...
+    def critical(
+        self,
+        msg: str,
+        /,
+        *args: Any,
+        exc_info: Exception | None = ...,
+        stack_info: Any = ...,
+        stacklevel: Any = ...,
+        **kws,
+    ) -> None: ...
 
     @abstractmethod
-    def error(self, msg: str, /, *args, exc_info: BaseException | None = None, **kwargs) -> None: ...
+    def error(
+        self,
+        msg: str,
+        /,
+        *args: Any,
+        exc_info: Exception | None = ...,
+        stack_info: Any = ...,
+        stacklevel: Any = ...,
+        **kws,
+    ) -> None: ...
 
     @abstractmethod
-    def warning(self, msg: str, /, *args, exc_info: BaseException | None = None, **kwargs) -> None: ...
+    def warning(
+        self,
+        msg: str,
+        /,
+        *args: Any,
+        exc_info: Exception | None = ...,
+        stack_info: Any = ...,
+        stacklevel: Any = ...,
+        **kws,
+    ) -> None: ...
 
     @abstractmethod
-    def info(self, msg: str, /, *args, exc_info: BaseException | None = None, **kwargs) -> None: ...
+    def info(
+        self,
+        msg: str,
+        /,
+        *args: Any,
+        exc_info: Exception | None = ...,
+        stack_info: Any = ...,
+        stacklevel: Any = ...,
+        **kws,
+    ) -> None: ...
 
     @abstractmethod
-    def debug(self, msg: str, /, *args, exc_info: BaseException | None = None, **kwargs) -> None: ...
+    def debug(
+        self,
+        msg: str,
+        /,
+        *args: Any,
+        exc_info: Exception | None = ...,
+        stack_info: Any = ...,
+        stacklevel: Any = ...,
+        **kws,
+    ) -> None: ...

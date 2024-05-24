@@ -393,7 +393,7 @@ async def retry(
     *,
     interval_s: float = 1.0,
     timeout_s: float = 120.0,
-    catch_exceptions: tuple[type[BaseException], ...] = (TimeoutError, IOError, ConnectionError, RetryError),
+    catch_exceptions: tuple[type[Exception], ...] = (TimeoutError, IOError, ConnectionError, RetryError),
     logger: Logger | None = None,
 ):
     """Retry function call

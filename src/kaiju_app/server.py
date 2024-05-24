@@ -196,7 +196,7 @@ class Server:
         retries: int = 0,
         retry_interval_s: float = 0,
         task_name: str | None = None,
-        env: dict = None,
+        env: dict | None = None,
         ctx: _Context = None,
     ) -> asyncio.Task:
         """Create a new task batch with templates and return immediately.
@@ -264,7 +264,7 @@ class Server:
         retries: int = 0,
         retry_interval_s: float = 0,
         task_name: str | None = None,
-        env: dict = None,
+        env: dict | None = None,
         ctx: _Context = None,
     ) -> asyncio.Task:
         """Same as :py:meth:`~kaiju_app.server.Server.call_template_nowait` but would wait for the server counter

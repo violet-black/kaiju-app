@@ -291,4 +291,4 @@ class Scheduler:
         elif policy is ExecPolicy.SHIELD:
             return float("Inf")
         else:
-            raise ValueError(f"Unsupported policy {policy}")
+            raise ValueError(f"Unsupported policy {policy}.")

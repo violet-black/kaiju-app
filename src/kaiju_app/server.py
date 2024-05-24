@@ -84,9 +84,9 @@ class Server:
         :raises ServiceNotAvailable: if the server is closed and cannot accept a request
         """
         if self.closed:
-            raise ServiceNotAvailable("Server is closed")
+            raise ServiceNotAvailable("Server is closed.")
         if self.full:
-            raise asyncio.QueueFull("Server is full")
+            raise asyncio.QueueFull("Server is full.")
         self._increment_counter()
         return asyncio.create_task(
             self._call(func, args, kws, request_timeout_s, callback, retries, retry_interval_s, ctx), name=task_name
@@ -130,9 +130,9 @@ class Server:
         :raises ServiceNotAvailable: if the server is closed and cannot accept a request
         """
         if self.closed:
-            raise ServiceNotAvailable("Server is closed")
+            raise ServiceNotAvailable("Server is closed.")
         if self.full:
-            raise asyncio.QueueFull("Server is full")
+            raise asyncio.QueueFull("Server is full.")
         self._increment_counter()
         return asyncio.create_task(
             self._call_many(batch, request_timeout_s, abort_batch_on_error, callback, retries, retry_interval_s, ctx),
@@ -155,7 +155,7 @@ class Server:
         """Same as :py:meth:`~kaiju_app.server.Server.call_nowait` but would wait for the server counter
         instead of raising a `asyncio.QueueFull` error."""
         if self.closed:
-            raise ServiceNotAvailable("Server is closed")
+            raise ServiceNotAvailable("Server is closed.")
         if self.full:
             await self.server_not_full.wait()
         self._increment_counter()
@@ -178,7 +178,7 @@ class Server:
         """Same as :py:meth:`~kaiju_app.server.Server.call_many_nowait` but would wait for the server counter
         instead of raising a `asyncio.QueueFull` error."""
         if self.closed:
-            raise ServiceNotAvailable("Server is closed")
+            raise ServiceNotAvailable("Server is closed.")
         if self.full:
             await self.server_not_full.wait()
         self._increment_counter()
@@ -243,9 +243,9 @@ class Server:
         :raises ServiceNotAvailable: if the server is closed and cannot accept a request
         """
         if self.closed:
-            raise ServiceNotAvailable("Server is closed")
+            raise ServiceNotAvailable("Server is closed.")
         if self.full:
-            raise asyncio.QueueFull("Server is full")
+            raise asyncio.QueueFull("Server is full.")
         self._increment_counter()
         if env is None:
             env = {}
@@ -270,7 +270,7 @@ class Server:
         """Same as :py:meth:`~kaiju_app.server.Server.call_template_nowait` but would wait for the server counter
         instead of raising a `asyncio.QueueFull` error."""
         if self.closed:
-            raise ServiceNotAvailable("Server is closed")
+            raise ServiceNotAvailable("Server is closed.")
         if self.full:
             await self.server_not_full.wait()
         if env is None:

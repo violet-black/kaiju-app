@@ -290,7 +290,7 @@ class Application:
         """
         for service_ in services:
             if service_.name in self._service_map:
-                raise ValueError(f"Trying to register a service with the same name twice: {service_.name}.") from None
+                raise ValueError(f"Trying to register a service with the same name twice: {service_.name}.")
             self._service_loading_order.append(service_)
             self._service_map[service_.name] = service_
 
@@ -422,7 +422,7 @@ class Application:
         except Exception as exc:
             if _service.name not in self.optional_services:
                 await self.stop(service_idx)
-                raise ServiceInitFailed(f'Service failed on start: "{_service.name}"') from exc
+                raise ServiceInitFailed(f"Service failed on start: {_service.name}.") from exc
             self.logger.error("service failed on start", exc_info=exc, service=_service.name)
 
     async def _post_init_service(self, _service: Service, /) -> None:

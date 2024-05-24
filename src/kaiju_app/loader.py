@@ -200,7 +200,7 @@ class ApplicationLoader:
                     f'Two services with the same name exist: {service_config["name"]}\n\n'
                     "Fix: Rename one of the services in the config or set AppLoader.allow_service_name_overrides to True to"
                     " allow overwriting services on init."
-                ) from None
+                )
 
             if service_config["cls"] not in self.service_classes:
                 raise ConfigurationError(
@@ -208,7 +208,7 @@ class ApplicationLoader:
                     f"Fix: Check if the class is registered in the app loader"
                     f" `service_classes` dict and that all the required kaiju packages are listed"
                     f" in the `packages` section of the config file."
-                ) from None
+                )
 
             new_service = self.create_service(app, self.service_classes[service_config["cls"]], service_config)
             app_services[new_service.name] = new_service
@@ -286,6 +286,6 @@ class ApplicationLoader:
             raise DependencyNotFound(
                 f"Dependency failed for service: {service_.name}\n\n"
                 f"Fix: Check if a service {name} of type {field_.type} is present in the config."
-            ) from None
+            )
 
         return dependency

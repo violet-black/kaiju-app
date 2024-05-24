@@ -172,7 +172,7 @@ class Namespace:
             if name_part.startswith("_"):
                 name_part = name_part.lstrip("_")
             if self._invalid_chars.search(name_part):
-                raise ValueError("Namespace name must contain one of: a-z, 0-9, - or _")
+                raise ValueError("Namespace name must contain one of: a-z, 0-9, - or _.")
             _name.append(f"_{name_part}")
         self._name = ".".join(_name)
 
@@ -185,7 +185,7 @@ class Namespace:
         if key.startswith("_"):
             raise ValueError(f"Namespace key must not start with an underscore")
         if self._invalid_chars.search(key):
-            raise ValueError(f"Namespace key must contain one of: a-z, 0-9, - or _")
+            raise ValueError(f"Namespace key must contain one of: a-z, 0-9, - or _.")
         return NSKey(".".join((self._name, key)))
 
     def __contains__(self, key: NSKey | str, /) -> bool:
@@ -307,13 +307,13 @@ class State(Generic[_Status]):
         for _state in self._events.values():
             _state.clear()
         if state not in self._events:
-            raise ValueError(f'Unexpected state: "{state}"')
+            raise ValueError(f"Unexpected state: {state}.")
         self._events[state].set()
         self._status = state
 
     async def wait(self, state: _Status, /) -> None:
         if state not in self._events:
-            raise ValueError(f'Unexpected state: "{state}"')
+            raise ValueError(f"Unexpected state: {state}.")
         await self._events[state].wait()
 
     def __enter__(self) -> Self:
@@ -376,7 +376,7 @@ class _Timeout:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if exc_type is asyncio.CancelledError:
-            raise asyncio.TimeoutError("Timeout")
+            raise asyncio.TimeoutError("Timeout.") from None
         if self._handler:
             self._handler.cancel()
 

@@ -187,6 +187,6 @@ class TestApplication:
         async with _app:
             _app.set_context_var('foo', 'bar')
             assert _service_1.get_context_var('foo') == 'bar'
-            _app.set_context_var('foo', 'foo')
+            _app.update_context_var('foo', 'foo')
             assert _service_1.get_context_var('foo') == 'foo'
             assert _app.get_context_var('not exists') is None
